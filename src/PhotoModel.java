@@ -36,10 +36,6 @@ public class PhotoModel {
         return drawingPoints;
     }
 
-    public void setDrawingPoints(List<Point> drawingPoints) {
-        this.drawingPoints = drawingPoints;
-    }
-
     public void addPoint(Point point) {
         this.drawingPoints.add(point);
     }

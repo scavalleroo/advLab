@@ -5,6 +5,7 @@ import javax.swing.filechooser.FileFilter;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.*;
 import java.awt.event.*;
+import java.awt.image.BufferedImage;
 import java.io.File;
 
 // PhotoLibraryFrame class extends JFrame to create the main application window
@@ -24,12 +25,11 @@ public class PhotoLibraryFrame extends JFrame {
     // View menu options
     ButtonGroup btnGroupView;
     JRadioButtonMenuItem vmPhotoViewer, vmBrowser;
-
-    JPanel mainPanel;
+    JScrollPane scrollPane;
     JLabel statusBar;
     JToolBar toolBar;
-    JToggleButton tbPeople, tbPlaces, tbSchool;
     PhotoComponent photoComponent;
+    File fileSelected = null;
 
     // Constructor for PhotoLibrary class
     public PhotoLibraryFrame() {
@@ -55,7 +55,10 @@ public class PhotoLibraryFrame extends JFrame {
         // Add action listeners for "Import," "Delete," and "Quit" menu items
         fmImport.addActionListener(e -> this.importFile());
         fmQuit.addActionListener(e -> this.quitApplication());
-        fmDelete.addActionListener(e -> this.setStatusMessage(IMPLEMENTATION_MISSING_MESSAGE));
+        fmDelete.addActionListener(e -> {
+            fileSelected = null;
+            this.createMainPanel();
+        });
 
         // Creation and addition of menu items for the "View" menu
         btnGroupView = new ButtonGroup();
@@ -74,17 +77,32 @@ public class PhotoLibraryFrame extends JFrame {
 
     // Creates the main panel for the application
     private void createMainPanel() {
-        mainPanel = new JPanel(); // Create the main panel
-        mainPanel.setLayout(new BoxLayout(mainPanel, BoxLayout.Y_AXIS));
+        if(scrollPane != null) {
+            this.remove(scrollPane);
+        }
+        JPanel mainPanel = new JPanel(); // Create the main panel
+        mainPanel.setLayout(new BoxLayout(mainPanel, BoxLayout.X_AXIS));
         mainPanel.setBackground(Color.LIGHT_GRAY);
         try {
-            photoComponent = new PhotoComponent(ImageIO.read(new File("src/icons/landscape.jpeg")));
-            //photoComponent.setPreferredSize(new Dimension(600, 400));
+            if(fileSelected != null) {
+                BufferedImage image = ImageIO.read(fileSelected);
+                photoComponent = new PhotoComponent(image);
+                photoComponent.setPreferredSize(new Dimension((int)(image.getWidth() * 0.6), (int)(image.getWidth() * 0.6)));
+                JButton previousButton = new JButton("< Previous");
+                previousButton.addActionListener(e -> this.setStatusMessage(IMPLEMENTATION_MISSING_MESSAGE));
+                JButton nextButton = new JButton("Next >");
+                nextButton.addActionListener(e -> this.setStatusMessage(IMPLEMENTATION_MISSING_MESSAGE));
+                mainPanel.add(previousButton);
+                mainPanel.add(photoComponent);
+                mainPanel.add(nextButton);
+            }
         } catch (java.io.IOException e) {
             e.printStackTrace();
         }
-        mainPanel.add(photoComponent);
-        this.add(mainPanel, BorderLayout.CENTER); // Add the main panel to the frame's center
+        scrollPane = new JScrollPane(mainPanel);
+        scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_ALWAYS);
+        scrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_ALWAYS);
+        this.add(scrollPane, BorderLayout.CENTER); // Add the main panel to the frame's center
         this.pack();
     }
 
@@ -119,7 +137,6 @@ public class PhotoLibraryFrame extends JFrame {
         gbc.insets = new Insets(5, 0, 5, 0);
 
         // Create and add toggle buttons for filtering images
-        // TODO set toggle button
         for (int i = 0; i < icons.length; i++) {
             JToggleButton button = new JToggleButton(buttonNames[i], icons[i]);
             String buttonName = buttonNames[i];
@@ -149,7 +166,10 @@ public class PhotoLibraryFrame extends JFrame {
         chooser.setFileFilter(imageFilter); // Set a file filter for image files
         int returnVal = chooser.showOpenDialog(this); // Show the file chooser dialog
         if(returnVal == JFileChooser.APPROVE_OPTION) {
-            this.setStatusMessage(IMPLEMENTATION_MISSING_MESSAGE);
+            fileSelected = chooser.getSelectedFile();
+            createMainPanel();
+        } else {
+            this.setStatusMessage("Error in the file selection");
         }
     }
 

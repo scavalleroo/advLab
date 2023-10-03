@@ -4,7 +4,6 @@ public class Annotation {
     private Point insertionPoint;
     private String text;
 
-
     public Annotation(String text, Point insertionPoint) {
         this.text = text;
         this.insertionPoint = insertionPoint;
