@@ -1,33 +1,185 @@
 import java.awt.*;
+import java.awt.event.KeyAdapter;
+import java.awt.event.KeyEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.util.Arrays;
+import java.util.List;
 
 public class PhotoUI {
     private int imageWidth;
     private int imageHeight;
-    int x0;
-    int y0;
+    Point origin = new Point(0,0);
     double scaleX;
     double scaleY;
     double scale;
+    private Point insertionPoint;
+    private boolean mousePressed = false;
+    private boolean isTyping = false;
+    private boolean isDrawing = false;
+    static public final int NOT_SET = -1;
+    private int currentTextIndex = NOT_SET;
+    private int currentLineIndex = NOT_SET;
+    private int cursorPosition = NOT_SET;
 
-    public PhotoUI(){}
+    public PhotoUI(PhotoComponent c){
+        addListeners(c);
+    }
+
+    public void addListeners(PhotoComponent c) {
+        MouseAdapter mouseAdapter = new MouseAdapter() {
+            // Takes care of flipping the image
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() == 2) {
+                    if (isPointInArea(e.getPoint())) {
+                        c.setFlipped(!c.isFlipped());
+                    }
+                }
+            }
+
+            // Takes care of handling the creation of a new text
+            @Override
+            public void mousePressed(MouseEvent e) {
+                if(c.isFlipped()) {
+                    if (isTyping || cursorPosition != NOT_SET) {
+                        isTyping = false;
+                        // Removing the "|" cursor before publishing
+                        if(currentTextIndex != NOT_SET) {
+                            String text = c.getModel().getAnnotations().get(currentTextIndex).getText();
+                            text = text.substring(0, cursorPosition) + text.substring(cursorPosition + 1);
+                            c.getModel().getAnnotations().get(currentTextIndex).setHasCursor(false);
+                            c.getModel().getAnnotations().get(currentTextIndex).setText(text);
+                            cursorPosition = NOT_SET;
+                        }
+                    }
+
+                    // Check if the insert point is inside the drawing area
+                    if (isPointInArea(e.getPoint())) {
+                        // Setting the point where the click happen as the insert point
+                        insertionPoint = new Point((int)((e.getX() - origin.x) / scaleX), (int)((e.getY() - origin.y) / scaleY));
+                        FontMetrics font = c.getGraphics().getFontMetrics();
+                        List<TextAnnotation> textAnnotations = c.getModel().getAnnotations();
+                        // Resetting the current text that is being edited
+                        currentTextIndex = NOT_SET;
+                        // Check if the click happen over a text that is being printed
+                        setCurrentEditingText(c, e.getPoint(), textAnnotations, font);
+                        setCurrentEditingLine(c, e.getPoint());
+
+                        mousePressed = true;
+                    }
+                }
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                isDrawing = false;
+                if (isPointInArea(e.getPoint())) {
+                    c.getModel().addPoint(PhotoModel.BREAK_POINT);
+                }
+            }
+
+            @Override
+            public void mouseDragged(MouseEvent e) {
+                if (isPointInArea(e.getPoint())) {
+                    Point p = new Point((int)((e.getX() - origin.x) / scaleX), (int)((e.getY() - origin.y) / scaleY));
+                    if(currentTextIndex != NOT_SET) {
+                        TextAnnotation annotation =  c.getModel().getAnnotations().get(currentTextIndex);
+                        if(!annotation.getText().isBlank()) {
+                            FontMetrics font = c.getGraphics().getFontMetrics();
+                            p.x = (int)((p.x * scaleX - font.stringWidth(annotation.getText()) / 2) / scaleX);
+                            c.getModel().getAnnotations().get(currentTextIndex).setOrigin(p);
+                        }
+                    } else if(currentLineIndex != NOT_SET) {
+                        c.getModel().moveLineAt(currentLineIndex, p);
+                    } else {
+                        c.getModel().addPoint(p);
+                    }
+                }
+            }
+        };
+
+        KeyAdapter keyAdapter = new KeyAdapter() {
+            @Override
+            public void keyPressed(KeyEvent e) {
+                if(mousePressed && !isDrawing) {
+                    if(currentTextIndex != NOT_SET) {
+                        String text = c.getModel().getAnnotations().get(currentTextIndex).getText();
+                        if (e.getKeyCode() == KeyEvent.VK_LEFT) {
+                            if(cursorPosition > 0 && !text.substring(0, cursorPosition).isBlank()) {
+                                text = text.substring(0, cursorPosition - 1) + "|" + text.charAt(cursorPosition - 1) + text.substring(cursorPosition + 1);
+                                c.getModel().getAnnotations().get(currentTextIndex).setHasCursor(true);
+                                c.getModel().getAnnotations().get(currentTextIndex).setText(text);
+                                cursorPosition--;
+                            }
+                        } else if (e.getKeyCode() == KeyEvent.VK_RIGHT) {
+                            if (cursorPosition < (text.length() - 1)) {
+                                text = text.substring(0, cursorPosition) + text.charAt(cursorPosition + 1) + "|" + text.substring(cursorPosition + 2);
+                                c.getModel().getAnnotations().get(currentTextIndex).setHasCursor(true);
+                                c.getModel().getAnnotations().get(currentTextIndex).setText(text);
+                                cursorPosition++;
+                            }
+                        }
+                    }
+                    if(!isTyping) {
+                        createNewAnnotation(e, c.getModel());
+                        isTyping = true;
+                    }
+                    editAnnotation(e, c.getModel());
+                }
+            }
+        };
+
+        // Add listeners
+        c.addMouseListener(mouseAdapter);
+        c.addMouseMotionListener(mouseAdapter);
+        c.addKeyListener(keyAdapter);
+    }
+
+    private void createNewAnnotation(KeyEvent e, PhotoModel model) {
+        if(currentTextIndex == NOT_SET) {
+            String text = (e.getKeyChar() + "").concat("|");
+            model.addAnnotation(new TextAnnotation(text, insertionPoint));
+            currentTextIndex = model.getAnnotations().size() - 1;
+            cursorPosition = 1;
+            model.getAnnotations().get(currentTextIndex).setHasCursor(true);
+        }
+    }
+
+    private void editAnnotation(KeyEvent e, PhotoModel model) {
+        String text = model.getAnnotations().get(currentTextIndex).getText();
+        if (e.getKeyCode() == KeyEvent.VK_BACK_SPACE) {
+            if(!text.substring(0, cursorPosition).isEmpty()) {
+                text = text.substring(0, cursorPosition - 1) + text.substring(cursorPosition);
+                model.getAnnotations().get(currentTextIndex).setHasCursor(true);
+                cursorPosition--;
+            }
+        } else {
+            if(Character.isDefined(e.getKeyChar()) && !Character.isISOControl(e.getKeyChar())) {
+                String cursor = "|";
+                text = text.substring(0, cursorPosition) +
+                        e.getKeyChar() + cursor +
+                        text.substring(cursorPosition + 1);
+                cursorPosition++;
+                model.getAnnotations().get(currentTextIndex).setHasCursor(true);
+            }
+        }
+        model.getAnnotations().get(currentTextIndex).setText(text);
+    }
 
     public void paint(Graphics2D g, PhotoComponent c) {
         computeImageScaling(c);
 
-        if(!c.getModel().isFlipped()) {
-            // Show the picture
-            Image image = c.getModel().getImage();
-            g.drawImage(image, x0, y0, imageWidth, imageHeight, null);
-        } else {
-            // Draw the background of the canvas
-            g.setColor(Color.WHITE);
-            g.fillRect(x0, y0, imageWidth, imageHeight);
+        Stroke stroke = new BasicStroke(6.0f); // Change 2.0f to your desired stroke size
+        g.setStroke(stroke);
 
+        Image image = c.getModel().getImage();
+        g.drawImage(image, origin.x, origin.y, imageWidth, imageHeight, null);
+        if(c.isFlipped()) {
             // Draw the strokes
-            drawLines(g, c);
-
+            c.getModel().drawLines(g, origin, scaleX, scaleY, this::isPointInArea);
             // Draw the text
-            drawText(g, c);
+            c.getModel().drawText(g, origin, scaleX, scaleY, imageHeight, this::isPointInArea);
             c.invalidate();
         }
     }
@@ -59,87 +211,37 @@ public class PhotoUI {
         // Update the image dimensions and position
         this.imageWidth = newImageWidth;
         this.imageHeight = newImageHeight;
-        this.x0 = x0;
-        this.y0 = y0;
+        this.origin.x = x0;
+        this.origin.y = y0;
     }
 
-    private void drawText(Graphics g, PhotoComponent c) {
-        g.setFont(new Font("Ariel", Font.PLAIN, 20));
-        if(!c.getModel().getAnnotations().isEmpty()) {
-            FontMetrics font = g.getFontMetrics();
-            // Print every word taking care of creating a new line if the word is too long
-            for (int j = 0; j < c.getModel().getAnnotations().size(); j++) {
-                Annotation annotation = c.getModel().getAnnotations().get(j);
-
-                // Different style for the text that is being edited
-                if(j == c.getCurrentTextIndex()) {
-                    g.setColor(Color.GRAY);
-                } else {
-                    g.setColor(Color.BLUE);
-                }
-
-                int y = (int)((annotation.getY() * scaleY) + y0);
-                int i = 0; // index of the char in the word
-
-                char[] word = annotation.getText().toCharArray();
-                String printedWord = "";
-                int startX = (int)((annotation.getX() * scaleX) + x0);
-                // Build the longest string possible before creating a new line
-                while(i < word.length && y < y0 + imageHeight) {
-                    printedWord += word[i];
-                    int endX = startX + font.stringWidth(printedWord);
-                    // If the word overflow the size of the image then print word that can fit in that space and move the
-                    // y coordinate to create a new line
-                    if(!isPointInArea(new Point(endX, y))) {
-                        // -1 because otherwise the text will go out of the Canvas
-                        g.drawString(printedWord.substring(0, printedWord.length() - 1), startX, y);
-                        printedWord = word[i] + "";
-                        y += font.getHeight() + 1;
-                    }
-                    i++;
-                }
-                if(y < y0 + imageHeight) {
-                    g.drawString(printedWord, startX, y);
-                }
+    private void setCurrentEditingText(PhotoComponent c, Point click, List<TextAnnotation> textAnnotations, FontMetrics font) {
+        // Check if the click was over one of the text
+        // If the area of the click is inside the area of text then we are editing the currentTextIndex string
+        currentTextIndex = c.getModel().getSelectedTextAnnotation(click, origin, scaleX, scaleY, font, this::isPointInArea);
+        if(currentTextIndex != NOT_SET) {
+            if (!textAnnotations.get(currentTextIndex).hasCursor()) {
+                textAnnotations.get(currentTextIndex).setText(textAnnotations.get(currentTextIndex).getText().concat("|"));
+                textAnnotations.get(currentTextIndex).setHasCursor(true);
             }
+            cursorPosition = textAnnotations.get(currentTextIndex).getText().length() - 1;
         }
     }
 
-    private void drawLines(Graphics g, PhotoComponent c) {
-        if(!c.getModel().getDrawingPoints().isEmpty()) {
-            g.setColor(Color.BLUE);
-            Point start = c.getModel().getDrawingPoints().get(0);
-            for (Point point: c.getModel().getDrawingPoints()) {
-                if(point != PhotoModel.BREAK_POINT && start != PhotoModel.BREAK_POINT) {
-                    // Assign the relative coordinate to the point that is going to be printed
-                    // In this way rescaling the image also rescale the lines
-                    Point drawingPoint = new Point((int)((point.x  * scaleX) + x0), (int)((point.y * scaleY) + y0));
-                    // Check if the new point is inside the picture area
-                    if (isPointInArea(drawingPoint)) {
-                        g.drawLine((int)((start.x * scaleX) + x0), (int)((start.y * scaleY) + y0), drawingPoint.x, drawingPoint.y);
-                    }
-                }
-                start = point;
-            }
+
+    private void setCurrentEditingLine(PhotoComponent c, Point click) {
+        // Check if the click was over one of the text
+        // If the area of the click is inside the area of text then we are editing the currentTextIndex string
+        currentLineIndex = c.getModel().getSelectedLine(click, origin, scaleX, scaleY, 15, this::isPointInArea);
+        if(currentTextIndex != NOT_SET) {
+            System.out.println("Hit stroke");
+        } else {
+            System.out.println("Miss stroke");
         }
     }
 
     public boolean isPointInArea(Point p) {
-        return p.getX() >= x0 && p.getX() <= x0 + imageWidth &&
-                p.getY() >= y0 && p.getY() <= y0 + imageHeight;
-    }
-    public int getX0() {
-        return x0;
-    }
-
-    public int getY0() {
-        return y0;
-    }
-
-    public double getScaleX() {
-        return scaleX;
-    }
-    public double getScaleY() {
-        return scaleY;
+        return p.getX() >= origin.x && p.getX() <= origin.x + imageWidth &&
+                p.getY() >= origin.y && p.getY() <= origin.y + imageHeight;
     }
 }
